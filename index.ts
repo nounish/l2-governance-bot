@@ -1,4 +1,4 @@
-import BotSwarm from "@federationwtf/botswarm";
+import BotSwarm, { Task } from "@federationwtf/botswarm";
 import {
   FederationNounsGovernor,
   FederationNounsRelayer,
@@ -33,10 +33,12 @@ const { addTask, watch, read, clients, contracts, schedule } = Ethereum({
   },
   hooks: {
     getBlockProof: async (task) => {
-      log.active(`Getting block proof for proposal end block ${task.args[1]}`);
+      log.active(
+        `Getting block proof for proposal end block ${task.execute.args[1]}`
+      );
 
       const { hash } = await clients.mainnet.getTransaction({
-        blockNumber: task.args[1],
+        blockNumber: task.execute.args[1],
         index: 0,
       });
 
@@ -44,13 +46,16 @@ const { addTask, watch, read, clients, contracts, schedule } = Ethereum({
 
       const { proof } = await relic.transactionProver.getProofData(receipt);
 
-      return { ...task, args: [task.args[0], proof] };
+      return {
+        ...task,
+        execute: { ...task.execute, args: [task.execute.args[0], proof] },
+      } satisfies Task;
     },
     getMessageProof: async (task) => {
-      const messageHash = ethers.utils.keccak256(task.args[3]);
+      const messageHash = ethers.utils.keccak256(task.execute.args[3]);
 
       const proofInfo = await zkSyncProvider.getMessageProof(
-        task.args[5],
+        task.execute.args[5],
         contracts.FederationNounsGovernor.deployments.zkSync,
         messageHash
       );
@@ -61,20 +66,25 @@ const { addTask, watch, read, clients, contracts, schedule } = Ethereum({
 
       return {
         ...task,
-        args: [
-          task.args[0],
-          proofInfo.id,
-          task.args[2],
-          task.args[3],
-          proofInfo.proof,
-        ],
-      };
+        execute: {
+          ...task.execute,
+          args: [
+            task.execute.args[0],
+            proofInfo.id,
+            task.execute.args[2],
+            task.execute.args[3],
+            proofInfo.proof,
+          ],
+        },
+      } satisfies Task;
     },
     publishBlockHash: async (task) => {
-      log.active(`Publishing block hash to Relic for block ${task.args[1]}`);
+      log.active(
+        `Publishing block hash to Relic for block ${task.execute.args[1]}`
+      );
 
       const blockHash = await mainnetProvider
-        .getBlock(Number(task.args[1]))
+        .getBlock(Number(task.execute.args[1]))
         .then((b) => b.hash);
 
       const tx = await mainnetSigner.sendTransaction(
@@ -84,7 +94,7 @@ const { addTask, watch, read, clients, contracts, schedule } = Ethereum({
       await relic.bridge.waitUntilBridged(blockHash);
 
       log.success(
-        `Published block hash to Relic for block ${task.args[1]} in tx ${tx.hash}`
+        `Published block hash to Relic for block ${task.execute.args[1]} in tx ${tx.hash}`
       );
 
       return task;
@@ -151,13 +161,18 @@ watch(
     });
 
     addTask({
-      block: endBlock - (castWindow + finalityBlocks) + 1n,
-      hooks: ["getBlockProof"],
-      contract: "FederationNounsGovernor",
-      chain: "zkSync",
-      functionName: "settleVotes",
-      // @ts-ignore
-      args: [event.args.proposal, endBlock],
+      schedule: {
+        block: endBlock - (castWindow + finalityBlocks) + 1n,
+        chain: "mainnet",
+      },
+      execute: {
+        hooks: ["getBlockProof"],
+        contract: "FederationNounsGovernor",
+        chain: "zkSync",
+        functionName: "settleVotes",
+        // @ts-ignore
+        args: [event.args.proposal, endBlock],
+      },
     });
   }
 );
@@ -195,20 +210,25 @@ watch(
     } as const;
 
     addTask({
-      block: event.blockNumber + finalityBlocks,
-      hooks: ["getMessageProof"],
-      contract: "FederationNounsRelayer",
-      chain: "mainnet",
-      functionName: "relayVotes",
-      args: [
-        BigInt(l1BatchNumber),
-        proof.id,
-        l1BatchTxIndex,
-        encodedMessage,
-        proof.proof,
-        //@ts-ignore
-        blockNumber,
-      ],
+      schedule: {
+        block: event.blockNumber + finalityBlocks,
+        chain: "mainnet",
+      },
+      execute: {
+        hooks: ["getMessageProof"],
+        contract: "FederationNounsRelayer",
+        chain: "mainnet",
+        functionName: "relayVotes",
+        args: [
+          BigInt(l1BatchNumber),
+          proof.id,
+          l1BatchTxIndex,
+          encodedMessage,
+          proof.proof,
+          //@ts-ignore
+          blockNumber,
+        ],
+      },
     });
   }
 );

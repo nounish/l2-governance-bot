@@ -1,97 +1,99 @@
-import BotSwarm from "@federationwtf/botswarm";
-import MockNounsGovernor from "./contracts/MockNounsGovernor";
-import MockNounsRelayer from "./contracts/MockNounsRelayer";
-import Relic from "@relicprotocol/client";
-import { ethers } from "ethers";
+// If we need to test again, major changes need to be made to this and the contracts since goerli is deprecated and botswarm api has been updated
 
-const { Ethereum } = BotSwarm();
+// import BotSwarm from "@federationwtf/botswarm";
+// import MockNounsGovernor from "./contracts/MockNounsGovernor";
+// import MockNounsRelayer from "./contracts/MockNounsRelayer";
+// import Relic from "@relicprotocol/client";
+// import { ethers } from "ethers";
 
-const ethersProvider = new ethers.providers.JsonRpcProvider(
-  process.env.SEPOLIA_RPC_URL as string
-);
+// const { Ethereum } = BotSwarm();
 
-const relic = await Relic.RelicClient.fromProvider(ethersProvider);
+// const ethersProvider = new ethers.providers.JsonRpcProvider(
+//   process.env.SEPOLIA_RPC_URL as string
+// );
 
-const { addTask, tasks, rescheduleTask, watch, read, clients } = Ethereum({
-  contracts: {
-    MockNounsGovernor,
-    MockNounsRelayer,
-  },
-  hooks: {
-    getBlockProof: async (task) => {
-      const { startBlock } = await read({
-        contract: "MockNounsGovernor",
-        chain: "sepolia",
-        functionName: "getProposal",
-        args: [task.args[0]],
-      });
+// const relic = await Relic.RelicClient.fromProvider(ethersProvider);
 
-      const { hash } = await clients.sepolia.getTransaction({
-        blockNumber: startBlock + 2n,
-        index: 0,
-      });
+// const { addTask, tasks, rescheduleTask, watch, read, clients } = Ethereum({
+//   contracts: {
+//     MockNounsGovernor,
+//     MockNounsRelayer,
+//   },
+//   hooks: {
+//     getBlockProof: async (task) => {
+//       const { startBlock } = await read({
+//         contract: "MockNounsGovernor",
+//         chain: "sepolia",
+//         functionName: "getProposal",
+//         args: [task.args[0]],
+//       });
 
-      const receipt = await ethersProvider.getTransactionReceipt(hash);
+//       const { hash } = await clients.sepolia.getTransaction({
+//         blockNumber: startBlock + 2n,
+//         index: 0,
+//       });
 
-      const { proof } = await relic.transactionProver.getProofData(receipt);
+//       const receipt = await ethersProvider.getTransactionReceipt(hash);
 
-      task.args.push(proof);
+//       const { proof } = await relic.transactionProver.getProofData(receipt);
 
-      return task;
-    },
-  },
-  privateKey: process.env.ETHEREUM_PRIVATE_KEY as string,
-  cacheTasks: false,
-});
+//       task.args.push(proof);
 
-// Governor
-watch(
-  {
-    contract: "MockNounsGovernor",
-    chain: "sepolia",
-    event: "VoteCast",
-  },
-  async (event) => {
-    // const [, , , , , , , , , , , castWindow, finalityBlocks] = await read({
-    //   contract: "MockNounsGovernor",
-    //   chain: "sepolia",
-    //   functionName: "config",
-    // });
+//       return task;
+//     },
+//   },
+//   privateKey: process.env.ETHEREUM_PRIVATE_KEY as string,
+//   cacheTasks: false,
+// });
 
-    // const { endBlock } = await read({
-    //   contract: "MockNounsGovernor",
-    //   chain: "sepolia",
-    //   functionName: "getProposal",
-    //   args: [event.args.proposal],
-    // });
+// // Governor
+// watch(
+//   {
+//     contract: "MockNounsGovernor",
+//     chain: "sepolia",
+//     event: "VoteCast",
+//   },
+//   async (event) => {
+//     // const [, , , , , , , , , , , castWindow, finalityBlocks] = await read({
+//     //   contract: "MockNounsGovernor",
+//     //   chain: "sepolia",
+//     //   functionName: "config",
+//     // });
 
-    addTask({
-      block: event.blockNumber + 2n,
-      hooks: ["getBlockProof"],
-      contract: "MockNounsGovernor",
-      chain: "sepolia",
-      functionName: "settleVotes",
-      // @ts-ignore
-      args: [event.args.proposal],
-    });
-  }
-);
+//     // const { endBlock } = await read({
+//     //   contract: "MockNounsGovernor",
+//     //   chain: "sepolia",
+//     //   functionName: "getProposal",
+//     //   args: [event.args.proposal],
+//     // });
 
-// Relayer
-watch(
-  {
-    contract: "MockNounsGovernor",
-    chain: "sepolia",
-    event: "VotesSettled",
-  },
-  async (event) => {
-    addTask({
-      block: event.blockNumber + 2n,
-      // hooks: ["getMessageProof"],
-      contract: "MockNounsRelayer",
-      chain: "sepolia",
-      functionName: "relayVotes",
-      args: [event.args],
-    });
-  }
-);
+//     addTask({
+//       block: event.blockNumber + 2n,
+//       hooks: ["getBlockProof"],
+//       contract: "MockNounsGovernor",
+//       chain: "sepolia",
+//       functionName: "settleVotes",
+//       // @ts-ignore
+//       args: [event.args.proposal],
+//     });
+//   }
+// );
+
+// // Relayer
+// watch(
+//   {
+//     contract: "MockNounsGovernor",
+//     chain: "sepolia",
+//     event: "VotesSettled",
+//   },
+//   async (event) => {
+//     addTask({
+//       block: event.blockNumber + 2n,
+//       // hooks: ["getMessageProof"],
+//       contract: "MockNounsRelayer",
+//       chain: "sepolia",
+//       functionName: "relayVotes",
+//       args: [event.args],
+//     });
+//   }
+// );
