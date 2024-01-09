@@ -81,19 +81,11 @@ const { addTask, watch, read, clients, contracts, schedule } = Ethereum({
         await relic.bridge.sendBlock(blockHash)
       );
 
-      try {
-        await relic.bridge.waitUntilBridged(blockHash);
+      await relic.bridge.waitUntilBridged(blockHash);
 
-        log.success(
-          `Published block hash to Relic for block ${task.args[1]} in tx ${tx.hash}`
-        );
-      } catch (e) {
-        log.error(
-          `Failed to wait for relic bridging (waiting 5 mins as a back up): ${e}`
-        );
-
-        await new Promise((resolve) => setTimeout(resolve, 300000)); // Waits for 5 minutes, tx will error and botswarm will catch it if it actually wasnt bridged
-      }
+      log.success(
+        `Published block hash to Relic for block ${task.args[1]} in tx ${tx.hash}`
+      );
 
       return task;
     },
