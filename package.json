@@ -1,0 +1,15 @@
+{
+  "name": "federation-bot",
+  "version": "1.0.0",
+  "description": "An implementation of BotSwarm for Federation",
+  "type": "module",
+  "scripts": {
+    "start": "npx tsx ./index.ts",
+    "test": "npx tsx ./index.test.ts"
+  },
+  "dependencies": {
+    "@federationwtf/botswarm": "^3.0.4",
+    "@relicprotocol/client": "^0.1.2",
+    "zksync-web3": "^0.16.0"
+  }
+}
