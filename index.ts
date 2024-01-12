@@ -25,6 +25,22 @@ const relic = await Relic.RelicClient.fromProviders(
   mainnetProvider
 );
 
+async function publishBlockHash(block: number, wait: boolean) {
+  log.active(`Publishing block hash to Relic for block ${block}`);
+
+  const blockHash = await mainnetProvider.getBlock(block).then((b) => b.hash);
+
+  const tx = await mainnetSigner.sendTransaction(
+    await relic.bridge.sendBlock(blockHash)
+  );
+
+  log.success(
+    `Published block hash to Relic for block ${block} in tx ${tx.hash}`
+  );
+
+  if (wait) await relic.bridge.waitUntilBridged(blockHash);
+}
+
 const { addTask, watch, read, clients, contracts, schedule } = Ethereum({
   contracts: {
     FederationNounsGovernor,
@@ -33,9 +49,9 @@ const { addTask, watch, read, clients, contracts, schedule } = Ethereum({
   },
   hooks: {
     getBlockProof: async (task) => {
-      log.active(
-        `Getting block proof for proposal end block ${task.execute.args[1]}`
-      );
+      log.active(`Getting block proof for block ${task.execute.args[1]}`);
+
+      await publishBlockHash(Number(task.execute.args[1]), true);
 
       const { hash } = await clients.mainnet.getTransaction({
         blockNumber: task.execute.args[1],
@@ -78,47 +94,9 @@ const { addTask, watch, read, clients, contracts, schedule } = Ethereum({
         },
       } satisfies Task;
     },
-    publishBlockHash: async (task) => {
-      log.active(
-        `Publishing block hash to Relic for block ${task.execute.args[1]}`
-      );
-
-      const blockHash = await mainnetProvider
-        .getBlock(Number(task.execute.args[1]))
-        .then((b) => b.hash);
-
-      const tx = await mainnetSigner.sendTransaction(
-        await relic.bridge.sendBlock(blockHash)
-      );
-
-      await relic.bridge.waitUntilBridged(blockHash);
-
-      log.success(
-        `Published block hash to Relic for block ${task.execute.args[1]} in tx ${tx.hash}`
-      );
-
-      return task;
-    },
   },
   scripts: {
-    publishBlockHash: async (block: number) => {
-      log.active(`Publishing block hash to Relic for block ${block}`);
-
-      const blockHash = await mainnetProvider
-        .getBlock(block)
-        .then((b) => b.hash);
-
-      const tx = await mainnetSigner.sendTransaction(
-        await relic.bridge.sendBlock(blockHash)
-      );
-
-      log.success(
-        `Published block hash to Relic for block ${block} in tx ${tx.hash}`
-      );
-
-      // We dont really need to wait for it to bridge since noting else depends on this script
-      // await relic.bridge.waitUntilBridged(blockHash);
-    },
+    publishBlockHash,
   },
   privateKey: process.env.ETHEREUM_PRIVATE_KEY as string,
 });
@@ -133,8 +111,8 @@ watch(
   async (event) => {
     schedule({
       name: "publishBlockHash",
-      block: Number(event.args.startBlock) + 1,
-      args: [Number(event.args.startBlock)],
+      block: Number(event.args.startBlock) + 150, // 150 blocks is ~30 minutes and finality is ~15 minutes
+      args: [Number(event.args.startBlock), false],
     });
   }
 );
@@ -162,7 +140,7 @@ watch(
 
     addTask({
       schedule: {
-        block: endBlock - (castWindow + finalityBlocks) + 1n,
+        block: endBlock - (castWindow + finalityBlocks) + 150n, // 150 blocks is ~30 minutes and finality is ~15 minutes
         chain: "mainnet",
       },
       execute: {
@@ -171,7 +149,7 @@ watch(
         chain: "zkSync",
         functionName: "settleVotes",
         // @ts-ignore
-        args: [event.args.proposal, endBlock],
+        args: [event.args.proposal, endBlock - (castWindow + finalityBlocks)],
       },
     });
   }
