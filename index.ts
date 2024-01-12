@@ -112,6 +112,7 @@ watch(
     schedule({
       name: "publishBlockHash",
       block: Number(event.args.startBlock) + 150, // 150 blocks is ~30 minutes and finality is ~15 minutes
+      chain: "mainnet",
       args: [Number(event.args.startBlock), false],
     });
   }
