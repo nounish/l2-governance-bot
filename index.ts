@@ -30,15 +30,21 @@ async function publishBlockHash(block: number, wait: boolean) {
 
   const blockHash = await mainnetProvider.getBlock(block).then((b) => b.hash);
 
-  const tx = await mainnetSigner.sendTransaction(
-    await relic.bridge.sendBlock(blockHash)
-  );
+  console.log("block hash", blockHash);
+
+  const txData = await relic.bridge.sendBlock(blockHash);
+
+  console.log("txData", txData);
+
+  const tx = await mainnetSigner.sendTransaction(txData);
+
+  console.log("tx", tx);
+
+  if (wait) await relic.bridge.waitUntilBridged(blockHash);
 
   log.success(
     `Published block hash to Relic for block ${block} in tx ${tx.hash}`
   );
-
-  if (wait) await relic.bridge.waitUntilBridged(blockHash);
 }
 
 const { addTask, watch, read, clients, contracts, schedule } = Ethereum({
