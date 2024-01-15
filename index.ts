@@ -16,7 +16,7 @@ const mainnetProvider = new ethers.providers.JsonRpcProvider(
 
 const mainnetSigner = new ethers.Wallet(
   process.env.ETHEREUM_PRIVATE_KEY as string
-);
+).connect(mainnetProvider);
 
 const zkSyncProvider = new Provider("https://mainnet.era.zksync.io");
 
