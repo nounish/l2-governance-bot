@@ -26,6 +26,13 @@ const relic = await Relic.RelicClient.fromProviders(
 );
 
 async function publishBlockHash(block: number, wait: boolean) {
+  const canUseBlock = await relic.blockHistory.canVerifyBlock(block);
+
+  if (canUseBlock) {
+    log.warn(`Block ${block} is already verified on Relic, skipping`);
+    return;
+  }
+
   log.active(`Publishing block hash to Relic for block ${block}`);
 
   const blockHash = await mainnetProvider.getBlock(block).then((b) => b.hash);
@@ -57,6 +64,7 @@ const { addTask, watch, read, clients, contracts, schedule } = Ethereum({
     getBlockProof: async (task) => {
       log.active(`Getting block proof for block ${task.execute.args[1]}`);
 
+      // This takes like 15 min
       await publishBlockHash(Number(task.execute.args[1]), true);
 
       const { hash } = await clients.mainnet.getTransaction({
