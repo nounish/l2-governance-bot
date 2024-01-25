@@ -11,7 +11,7 @@ import { Provider } from "zksync-web3";
 const { Ethereum, log } = BotSwarm();
 
 const mainnetProvider = new ethers.providers.JsonRpcProvider(
-  "https://rpc.flashbots.net/"
+  process.env.MAINNET_RPC_URL
 );
 
 const mainnetSigner = new ethers.Wallet(
