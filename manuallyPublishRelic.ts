@@ -41,4 +41,4 @@ async function publishBlockHash(block: number, wait: boolean) {
   );
 }
 
-publishBlockHash(19008623, true);
+publishBlockHash(19086805, true);

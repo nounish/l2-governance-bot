@@ -84,11 +84,15 @@ const { addTask, watch, read, clients, contracts, schedule } = Ethereum({
     getMessageProof: async (task) => {
       const messageHash = ethers.utils.keccak256(task.execute.args[3]);
 
+      console.log("messageHash", messageHash);
+
       const proofInfo = await zkSyncProvider.getMessageProof(
         task.execute.args[5],
         contracts.FederationNounsGovernor.deployments.zkSync,
         messageHash
       );
+
+      console.log("proofInfo", proofInfo);
 
       if (!proofInfo) {
         throw new Error("No proof found");
@@ -202,9 +206,11 @@ watch(
       proof: ["0xPROOF"], // Overriden by hook
     } as const;
 
+    const currentBlockNumber = await clients["mainnet"].getBlockNumber();
+
     addTask({
       schedule: {
-        block: event.blockNumber + finalityBlocks,
+        block: currentBlockNumber + finalityBlocks,
         chain: "mainnet",
       },
       execute: {
