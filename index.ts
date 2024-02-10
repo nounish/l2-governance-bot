@@ -137,97 +137,191 @@ watch(
 );
 
 // Governor
-watch(
-  {
-    contract: "FederationNounsGovernor",
-    chain: "zkSync",
-    event: "VoteCast",
-  },
-  async (event) => {
-    const [, , , , , , , , , , , castWindow, finalityBlocks] = await read({
-      contract: "FederationNounsGovernor",
-      chain: "zkSync",
-      functionName: "config",
-    });
-
-    const { endBlock } = await read({
-      contract: "FederationNounsGovernor",
-      chain: "zkSync",
-      functionName: "getProposal",
-      args: [event.args.proposal],
-    });
-
-    addTask({
-      schedule: {
-        block: endBlock - (castWindow + finalityBlocks) + 150n, // 150 blocks is ~30 minutes and finality is ~15 minutes
-        chain: "mainnet",
-      },
-      execute: {
-        hooks: ["getBlockProof"],
+clients.zkSync.watchContractEvent({
+  abi: FederationNounsGovernor.abi,
+  address: FederationNounsGovernor.deployments.zkSync,
+  eventName: "VoteCast",
+  onLogs: async (logs) => {
+    for (const event of logs) {
+      const [, , , , , , , , , , , castWindow, finalityBlocks] = await read({
         contract: "FederationNounsGovernor",
         chain: "zkSync",
-        functionName: "settleVotes",
-        // @ts-ignore
-        args: [event.args.proposal, endBlock - (castWindow + finalityBlocks)],
-      },
-    });
-  }
-);
+        functionName: "config",
+      });
+
+      const { endBlock } = await read({
+        contract: "FederationNounsGovernor",
+        chain: "zkSync",
+        functionName: "getProposal",
+        args: [event.args.proposal ?? 0n],
+      });
+
+      addTask({
+        schedule: {
+          block: endBlock - (castWindow + finalityBlocks) + 150n, // 150 blocks is ~30 minutes and finality is ~15 minutes
+          chain: "mainnet",
+        },
+        execute: {
+          hooks: ["getBlockProof"],
+          contract: "FederationNounsGovernor",
+          chain: "zkSync",
+          functionName: "settleVotes",
+          // @ts-ignore
+          args: [event.args.proposal, endBlock - (castWindow + finalityBlocks)],
+        },
+      });
+    }
+  },
+});
+
+// watch(
+//   {
+//     contract: "FederationNounsGovernor",
+//     chain: "zkSync",
+//     event: "VoteCast",
+//   },
+//   async (event) => {
+//     const [, , , , , , , , , , , castWindow, finalityBlocks] = await read({
+//       contract: "FederationNounsGovernor",
+//       chain: "zkSync",
+//       functionName: "config",
+//     });
+
+//     const { endBlock } = await read({
+//       contract: "FederationNounsGovernor",
+//       chain: "zkSync",
+//       functionName: "getProposal",
+//       args: [event.args.proposal],
+//     });
+
+//     addTask({
+//       schedule: {
+//         block: endBlock - (castWindow + finalityBlocks) + 150n, // 150 blocks is ~30 minutes and finality is ~15 minutes
+//         chain: "mainnet",
+//       },
+//       execute: {
+//         hooks: ["getBlockProof"],
+//         contract: "FederationNounsGovernor",
+//         chain: "zkSync",
+//         functionName: "settleVotes",
+//         // @ts-ignore
+//         args: [event.args.proposal, endBlock - (castWindow + finalityBlocks)],
+//       },
+//     });
+//   }
+// );
 
 // Relayer
-watch(
-  {
-    contract: "FederationNounsGovernor",
-    chain: "zkSync",
-    event: "VotesSettled",
+clients.zkSync.watchContractEvent({
+  abi: FederationNounsGovernor.abi,
+  address: FederationNounsGovernor.deployments.zkSync,
+  eventName: "VotesSettled",
+  onLogs: async (logs) => {
+    for (const event of logs) {
+      const [, , , , , , , , , , , , finalityBlocks] = await read({
+        contract: "FederationNounsGovernor",
+        chain: "zkSync",
+        functionName: "config",
+      });
+
+      const { l1BatchNumber, l1BatchTxIndex, blockNumber } =
+        await zkSyncProvider.getTransactionReceipt(event.transactionHash);
+
+      const encodedMessage = ethers.utils.AbiCoder.prototype.encode(
+        ["uint256", "uint256", "uint256", "uint256"],
+        [
+          Number(event.args.proposal),
+          Number(event.args.forVotes),
+          Number(event.args.againstVotes),
+          Number(event.args.abstainVotes),
+        ]
+      ) as `0x${string}`;
+
+      const proof = {
+        id: 0n, // Overriden by hook
+        proof: ["0xPROOF"], // Overriden by hook
+      } as const;
+
+      const currentBlockNumber = await clients["mainnet"].getBlockNumber();
+
+      addTask({
+        schedule: {
+          block: currentBlockNumber + finalityBlocks,
+          chain: "mainnet",
+        },
+        execute: {
+          hooks: ["getMessageProof"],
+          contract: "FederationNounsRelayer",
+          chain: "mainnet",
+          functionName: "relayVotes",
+          args: [
+            BigInt(l1BatchNumber),
+            proof.id,
+            l1BatchTxIndex,
+            encodedMessage,
+            proof.proof,
+            //@ts-ignore
+            blockNumber,
+          ],
+        },
+      });
+    }
   },
-  async (event) => {
-    const [, , , , , , , , , , , , finalityBlocks] = await read({
-      contract: "FederationNounsGovernor",
-      chain: "zkSync",
-      functionName: "config",
-    });
+});
 
-    const { l1BatchNumber, l1BatchTxIndex, blockNumber } =
-      await zkSyncProvider.getTransactionReceipt(event.transactionHash);
+// watch(
+//   {
+//     contract: "FederationNounsGovernor",
+//     chain: "zkSync",
+//     event: "VotesSettled",
+//   },
+//   async (event) => {
+//     const [, , , , , , , , , , , , finalityBlocks] = await read({
+//       contract: "FederationNounsGovernor",
+//       chain: "zkSync",
+//       functionName: "config",
+//     });
 
-    const encodedMessage = ethers.utils.AbiCoder.prototype.encode(
-      ["uint256", "uint256", "uint256", "uint256"],
-      [
-        Number(event.args.proposal),
-        Number(event.args.forVotes),
-        Number(event.args.againstVotes),
-        Number(event.args.abstainVotes),
-      ]
-    ) as `0x${string}`;
+//     const { l1BatchNumber, l1BatchTxIndex, blockNumber } =
+//       await zkSyncProvider.getTransactionReceipt(event.transactionHash);
 
-    const proof = {
-      id: 0n, // Overriden by hook
-      proof: ["0xPROOF"], // Overriden by hook
-    } as const;
+//     const encodedMessage = ethers.utils.AbiCoder.prototype.encode(
+//       ["uint256", "uint256", "uint256", "uint256"],
+//       [
+//         Number(event.args.proposal),
+//         Number(event.args.forVotes),
+//         Number(event.args.againstVotes),
+//         Number(event.args.abstainVotes),
+//       ]
+//     ) as `0x${string}`;
 
-    const currentBlockNumber = await clients["mainnet"].getBlockNumber();
+//     const proof = {
+//       id: 0n, // Overriden by hook
+//       proof: ["0xPROOF"], // Overriden by hook
+//     } as const;
 
-    addTask({
-      schedule: {
-        block: currentBlockNumber + finalityBlocks,
-        chain: "mainnet",
-      },
-      execute: {
-        hooks: ["getMessageProof"],
-        contract: "FederationNounsRelayer",
-        chain: "mainnet",
-        functionName: "relayVotes",
-        args: [
-          BigInt(l1BatchNumber),
-          proof.id,
-          l1BatchTxIndex,
-          encodedMessage,
-          proof.proof,
-          //@ts-ignore
-          blockNumber,
-        ],
-      },
-    });
-  }
-);
+//     const currentBlockNumber = await clients["mainnet"].getBlockNumber();
+
+//     addTask({
+//       schedule: {
+//         block: currentBlockNumber + finalityBlocks,
+//         chain: "mainnet",
+//       },
+//       execute: {
+//         hooks: ["getMessageProof"],
+//         contract: "FederationNounsRelayer",
+//         chain: "mainnet",
+//         functionName: "relayVotes",
+//         args: [
+//           BigInt(l1BatchNumber),
+//           proof.id,
+//           l1BatchTxIndex,
+//           encodedMessage,
+//           proof.proof,
+//           //@ts-ignore
+//           blockNumber,
+//         ],
+//       },
+//     });
+//   }
+// );
