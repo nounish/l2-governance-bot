@@ -82,12 +82,19 @@ const { addTask, watch, read, clients, contracts, schedule } = Ethereum({
       } satisfies Task;
     },
     getMessageProof: async (task) => {
-      const messageHash = ethers.utils.keccak256(task.execute.args[3]);
+      const [transactionHash, encodedMessage] = task.execute.args;
+
+      const { l1BatchNumber, l1BatchTxIndex, blockNumber } =
+        await zkSyncProvider.getTransactionReceipt(transactionHash);
+
+      console.log(l1BatchNumber, l1BatchTxIndex, blockNumber);
+
+      const messageHash = ethers.utils.keccak256(encodedMessage);
 
       console.log("messageHash", messageHash);
 
       const proofInfo = await zkSyncProvider.getMessageProof(
-        task.execute.args[5],
+        blockNumber,
         contracts.FederationNounsGovernor.deployments.zkSync,
         messageHash
       );
@@ -103,10 +110,10 @@ const { addTask, watch, read, clients, contracts, schedule } = Ethereum({
         execute: {
           ...task.execute,
           args: [
-            task.execute.args[0],
+            l1BatchNumber,
             proofInfo.id,
-            task.execute.args[2],
-            task.execute.args[3],
+            l1BatchTxIndex,
+            encodedMessage,
             proofInfo.proof,
           ],
         },
@@ -174,43 +181,6 @@ clients.zkSync.watchContractEvent({
   },
 });
 
-// watch(
-//   {
-//     contract: "FederationNounsGovernor",
-//     chain: "zkSync",
-//     event: "VoteCast",
-//   },
-//   async (event) => {
-//     const [, , , , , , , , , , , castWindow, finalityBlocks] = await read({
-//       contract: "FederationNounsGovernor",
-//       chain: "zkSync",
-//       functionName: "config",
-//     });
-
-//     const { endBlock } = await read({
-//       contract: "FederationNounsGovernor",
-//       chain: "zkSync",
-//       functionName: "getProposal",
-//       args: [event.args.proposal],
-//     });
-
-//     addTask({
-//       schedule: {
-//         block: endBlock - (castWindow + finalityBlocks) + 150n, // 150 blocks is ~30 minutes and finality is ~15 minutes
-//         chain: "mainnet",
-//       },
-//       execute: {
-//         hooks: ["getBlockProof"],
-//         contract: "FederationNounsGovernor",
-//         chain: "zkSync",
-//         functionName: "settleVotes",
-//         // @ts-ignore
-//         args: [event.args.proposal, endBlock - (castWindow + finalityBlocks)],
-//       },
-//     });
-//   }
-// );
-
 // Relayer
 clients.zkSync.watchContractEvent({
   abi: FederationNounsGovernor.abi,
@@ -224,9 +194,6 @@ clients.zkSync.watchContractEvent({
         functionName: "config",
       });
 
-      const { l1BatchNumber, l1BatchTxIndex, blockNumber } =
-        await zkSyncProvider.getTransactionReceipt(event.transactionHash);
-
       const encodedMessage = ethers.utils.AbiCoder.prototype.encode(
         ["uint256", "uint256", "uint256", "uint256"],
         [
@@ -236,11 +203,6 @@ clients.zkSync.watchContractEvent({
           Number(event.args.abstainVotes),
         ]
       ) as `0x${string}`;
-
-      const proof = {
-        id: 0n, // Overriden by hook
-        proof: ["0xPROOF"], // Overriden by hook
-      } as const;
 
       const currentBlockNumber = await clients["mainnet"].getBlockNumber();
 
@@ -254,74 +216,15 @@ clients.zkSync.watchContractEvent({
           contract: "FederationNounsRelayer",
           chain: "mainnet",
           functionName: "relayVotes",
+          // @ts-ignore
           args: [
-            BigInt(l1BatchNumber),
-            proof.id,
-            l1BatchTxIndex,
+            // @ts-ignore
+            event.transactionHash,
+            // @ts-ignore
             encodedMessage,
-            proof.proof,
-            //@ts-ignore
-            blockNumber,
           ],
         },
       });
     }
   },
 });
-
-// watch(
-//   {
-//     contract: "FederationNounsGovernor",
-//     chain: "zkSync",
-//     event: "VotesSettled",
-//   },
-//   async (event) => {
-//     const [, , , , , , , , , , , , finalityBlocks] = await read({
-//       contract: "FederationNounsGovernor",
-//       chain: "zkSync",
-//       functionName: "config",
-//     });
-
-//     const { l1BatchNumber, l1BatchTxIndex, blockNumber } =
-//       await zkSyncProvider.getTransactionReceipt(event.transactionHash);
-
-//     const encodedMessage = ethers.utils.AbiCoder.prototype.encode(
-//       ["uint256", "uint256", "uint256", "uint256"],
-//       [
-//         Number(event.args.proposal),
-//         Number(event.args.forVotes),
-//         Number(event.args.againstVotes),
-//         Number(event.args.abstainVotes),
-//       ]
-//     ) as `0x${string}`;
-
-//     const proof = {
-//       id: 0n, // Overriden by hook
-//       proof: ["0xPROOF"], // Overriden by hook
-//     } as const;
-
-//     const currentBlockNumber = await clients["mainnet"].getBlockNumber();
-
-//     addTask({
-//       schedule: {
-//         block: currentBlockNumber + finalityBlocks,
-//         chain: "mainnet",
-//       },
-//       execute: {
-//         hooks: ["getMessageProof"],
-//         contract: "FederationNounsRelayer",
-//         chain: "mainnet",
-//         functionName: "relayVotes",
-//         args: [
-//           BigInt(l1BatchNumber),
-//           proof.id,
-//           l1BatchTxIndex,
-//           encodedMessage,
-//           proof.proof,
-//           //@ts-ignore
-//           blockNumber,
-//         ],
-//       },
-//     });
-//   }
-// );
