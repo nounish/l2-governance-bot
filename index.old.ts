@@ -7,7 +7,6 @@ import {
 import Relic from "@relicprotocol/client";
 import { ethers } from "ethers";
 import { Provider } from "zksync-web3";
-import { parseAbiItem, parseEventLogs } from "viem";
 
 const { Ethereum, log } = BotSwarm();
 
@@ -83,59 +82,10 @@ const { addTask, watch, read, clients, contracts, schedule } = Ethereum({
       } satisfies Task;
     },
     getMessageProof: async (task) => {
-      const [proposalId] = task.execute.args;
-
-      const event = await (async () => {
-        const logs = await clients.zkSync.getLogs({
-          address: contracts.FederationNounsGovernor.deployments.zkSync,
-          event: parseAbiItem(
-            "event VotesSettled(uint256 proposal, uint256 forVotes, uint256 againstVotes, uint256 abstainVotes)"
-          ),
-          fromBlock: 0n,
-          toBlock: await clients.zkSync.getBlockNumber(),
-        });
-
-        for (const log of logs) {
-          const tx = await clients.zkSync.getTransactionReceipt({
-            hash: log.transactionHash,
-          });
-
-          const events = parseEventLogs({
-            abi: FederationNounsGovernor.abi,
-            logs: tx.logs,
-          });
-
-          for (const event of events) {
-            if (
-              event.address ===
-              contracts.FederationNounsGovernor.deployments.zkSync
-            ) {
-              if (event.eventName === "VotesSettled") {
-                if (event.args.proposal === proposalId) {
-                  return event;
-                }
-              }
-            }
-          }
-        }
-      })();
-
-      if (!event) {
-        throw new Error(`No log found for prop ${proposalId}`);
-      }
-
-      const encodedMessage = ethers.utils.AbiCoder.prototype.encode(
-        ["uint256", "uint256", "uint256", "uint256"],
-        [
-          Number(event.args.proposal),
-          Number(event.args.forVotes),
-          Number(event.args.againstVotes),
-          Number(event.args.abstainVotes),
-        ]
-      ) as `0x${string}`;
+      const [transactionHash, encodedMessage] = task.execute.args;
 
       const { l1BatchNumber, l1BatchTxIndex, blockNumber } =
-        await zkSyncProvider.getTransactionReceipt(event.transactionHash);
+        await zkSyncProvider.getTransactionReceipt(transactionHash);
 
       console.log(l1BatchNumber, l1BatchTxIndex, blockNumber);
 
@@ -176,6 +126,7 @@ const { addTask, watch, read, clients, contracts, schedule } = Ethereum({
   privateKey: process.env.ETHEREUM_PRIVATE_KEY as string,
 });
 
+// Publish proposal startBlock hash to Relic
 watch(
   {
     contract: "NounsDAOLogicV3",
@@ -183,53 +134,97 @@ watch(
     event: "ProposalCreated",
   },
   async (event) => {
-    const [, , , , , , , , , , , castWindow, finalityBlocks] = await read({
-      contract: "FederationNounsGovernor",
-      chain: "zkSync",
-      functionName: "config",
-    });
-
-    // Publish proposal startBlock hash to Relic
     schedule({
       name: "publishBlockHash",
       block: Number(event.args.startBlock) + 150, // 150 blocks is ~30 minutes and finality is ~15 minutes
       chain: "mainnet",
       args: [Number(event.args.startBlock), false],
     });
-
-    // Settle votes on the governor
-    addTask({
-      schedule: {
-        block: event.args.endBlock - (castWindow + finalityBlocks) + 150n, // 150 blocks is ~30 minutes and finality is ~15 minutes
-        chain: "mainnet",
-      },
-      execute: {
-        hooks: ["getBlockProof"],
-        contract: "FederationNounsGovernor",
-        chain: "zkSync",
-        functionName: "settleVotes",
-        args: [
-          event.args.id,
-          // @ts-ignore
-          event.args.endBlock - (castWindow + finalityBlocks),
-        ],
-      },
-    });
-
-    // Relay votes to the DAO
-    addTask({
-      schedule: {
-        block: event.args.endBlock - castWindow / 2n,
-        chain: "mainnet",
-      },
-      execute: {
-        hooks: ["getMessageProof"],
-        contract: "FederationNounsRelayer",
-        chain: "mainnet",
-        functionName: "relayVotes",
-        // @ts-ignore
-        args: [event.args.id],
-      },
-    });
   }
 );
+
+// Governor
+clients.zkSync.watchContractEvent({
+  abi: FederationNounsGovernor.abi,
+  address: FederationNounsGovernor.deployments.zkSync,
+  eventName: "VoteCast",
+  onLogs: async (logs) => {
+    for (const event of logs) {
+      const [, , , , , , , , , , , castWindow, finalityBlocks] = await read({
+        contract: "FederationNounsGovernor",
+        chain: "zkSync",
+        functionName: "config",
+      });
+
+      const { endBlock } = await read({
+        contract: "FederationNounsGovernor",
+        chain: "zkSync",
+        functionName: "getProposal",
+        args: [event.args.proposal ?? 0n],
+      });
+
+      addTask({
+        schedule: {
+          block: endBlock - (castWindow + finalityBlocks) + 150n, // 150 blocks is ~30 minutes and finality is ~15 minutes
+          chain: "mainnet",
+        },
+        execute: {
+          hooks: ["getBlockProof"],
+          contract: "FederationNounsGovernor",
+          chain: "zkSync",
+          functionName: "settleVotes",
+          // @ts-ignore
+          args: [event.args.proposal, endBlock - (castWindow + finalityBlocks)],
+        },
+      });
+    }
+  },
+});
+
+// Relayer
+clients.zkSync.watchContractEvent({
+  abi: FederationNounsGovernor.abi,
+  address: FederationNounsGovernor.deployments.zkSync,
+  eventName: "VotesSettled",
+  onLogs: async (logs) => {
+    for (const event of logs) {
+      const [, , , , , , , , , , , , finalityBlocks] = await read({
+        contract: "FederationNounsGovernor",
+        chain: "zkSync",
+        functionName: "config",
+      });
+
+      const encodedMessage = ethers.utils.AbiCoder.prototype.encode(
+        ["uint256", "uint256", "uint256", "uint256"],
+        [
+          Number(event.args.proposal),
+          Number(event.args.forVotes),
+          Number(event.args.againstVotes),
+          Number(event.args.abstainVotes),
+        ]
+      ) as `0x${string}`;
+
+      const currentBlockNumber = await clients["mainnet"].getBlockNumber();
+
+      addTask({
+        schedule: {
+          block: currentBlockNumber + finalityBlocks,
+          chain: "mainnet",
+        },
+        execute: {
+          hooks: ["getMessageProof"],
+          contract: "FederationNounsRelayer",
+          chain: "mainnet",
+          functionName: "relayVotes",
+          // @ts-ignore
+          args: [
+            // @ts-ignore
+            event.transactionHash,
+            // @ts-ignore
+            encodedMessage,
+          ],
+        },
+      });
+    }
+  },
+});

@@ -11,6 +11,8 @@
     "@federationwtf/botswarm": "^3.0.26",
     "@relicprotocol/client": "^0.1.2",
     "ethers": "^5.7.2",
+    "viem": "^2.7.9",
+    "zksync-ethers": "^5.0.0",
     "zksync-web3": "^0.16.0"
   }
 }
